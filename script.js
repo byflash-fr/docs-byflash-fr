@@ -15,6 +15,13 @@ document.addEventListener('DOMContentLoaded', () => {
         showAuthModal();
     } else {
         loadDocuments();
+        
+        // Vérifier si un ID est présent dans l'URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const fileId = urlParams.get('id');
+        if (fileId) {
+            openDocument(fileId);
+        }
     }
 
     document.getElementById('editor').addEventListener('input', updateContent);
@@ -51,6 +58,13 @@ async function handleAuth(event) {
             localStorage.setItem('apiToken', apiToken);
             document.getElementById('authModal').classList.remove('active');
             loadDocuments();
+
+            // Vérifier si un ID était demandé dans l'URL avant la connexion
+            const urlParams = new URLSearchParams(window.location.search);
+            const fileId = urlParams.get('id');
+            if (fileId) {
+                openDocument(fileId);
+            }
         } else {
             alert(data.error || 'Erreur de connexion');
         }
