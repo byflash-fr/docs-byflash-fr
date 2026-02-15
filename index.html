@@ -3,260 +3,197 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Byflash | Editeur de texte</title>
-    <link rel="stylesheet" href="styles.css">
-    <link rel="shortcut icon" href="assets/logo.ico" type="image/x-icon">
+    <title>Byflash Editor - Éditeur de Documents</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Marked.js pour le Markdown -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
-    <!-- Header -->
-    <header>
-        <div class="header-left">
-            <div class="logo">📝</div>
-            <div class="brand">
-                <h1>Byflash Editor</h1>
-                <p>Professional Document Editor</p>
+    <!-- Barre latérale -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">
+                <!-- <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                    <path d="M16 2L28 9V23L16 30L4 23V9L16 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                    <path d="M16 16L22 12M16 16L10 12M16 16V22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg> -->
+                <h1>Byflash</h1>
             </div>
-        </div>
-        <div class="header-right">
-            <input type="text" id="documentTitle" placeholder="Document title" value="Untitled Document">
-            <button class="btn btn-primary" onclick="newDocument()">
-                <svg class="icon" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                Nouveau
-            </button>
-            <button class="btn btn-primary" id="logoutBtn" onclick="logout()">Déconnexion</button>
-        </div>
-    </header>
-
-    <!-- Toolbar -->
-    <div class="toolbar">
-        <button class="toolbar-btn" onclick="saveDocument()" title="Enregistrer">
-            <svg class="icon" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-        </button>
-        <button class="toolbar-btn" onclick="openDocumentList()" title="Ouvrir">
-            <svg class="icon" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
-        </button>
-        <button class="toolbar-btn" onclick="openImportDialog()" title="Importer">
-            <svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-        </button>
-
-        <div class="separator"></div>
-
-        <button class="toolbar-btn" onclick="document.execCommand('undo')" title="Annuler">
-            <svg class="icon" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
-        </button>
-        <button class="toolbar-btn" onclick="document.execCommand('redo')" title="Refaire">
-            <svg class="icon" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
-        </button>
-
-        <div class="separator"></div>
-
-        <button class="toolbar-btn" onclick="document.execCommand('bold')" title="Gras">
-            <svg class="icon" viewBox="0 0 24 24"><path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"></path><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"></path></svg>
-        </button>
-        <button class="toolbar-btn" onclick="document.execCommand('italic')" title="Italique">
-            <svg class="icon" viewBox="0 0 24 24"><line x1="19" y1="4" x2="10" y2="4"></line><line x1="14" y1="20" x2="5" y2="20"></line><line x1="15" y1="4" x2="9" y2="20"></line></svg>
-        </button>
-        <button class="toolbar-btn" onclick="document.execCommand('underline')" title="Souligné">
-            <svg class="icon" viewBox="0 0 24 24"><path d="M6 3v7a6 6 0 0 0 6 6 6 6 0 0 0 6-6V3"></path><line x1="4" y1="21" x2="20" y2="21"></line></svg>
-        </button>
-
-        <div class="separator"></div>
-
-        <select onchange="document.execCommand('fontSize', false, this.value); this.value='3'">
-            <option value="1">8pt</option>
-            <option value="2">10pt</option>
-            <option value="3" selected>12pt</option>
-            <option value="4">14pt</option>
-            <option value="5">18pt</option>
-            <option value="6">24pt</option>
-            <option value="7">36pt</option>
-        </select>
-
-        <div class="separator"></div>
-
-        <button class="toolbar-btn" onclick="addTextToPDF()" title="Ajouter du texte">
-            <svg class="icon" viewBox="0 0 24 24"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>
-        </button>
-        <button class="toolbar-btn" onclick="addImageToPDF()" title="Ajouter une image">
-            <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-        </button>
-        <button class="toolbar-btn" onclick="addTableToPDF()" title="Ajouter un tableau">
-            <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
-        </button>
-        <button class="toolbar-btn" onclick="addDrawingToPDF()" title="Dessiner">
-            <svg class="icon" viewBox="0 0 24 24"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
-        </button>
-
-        <div class="separator"></div>
-
-        <button class="toolbar-btn" onclick="document.execCommand('justifyLeft')" title="Aligner à gauche">
-            <svg class="icon" viewBox="0 0 24 24"><line x1="17" y1="10" x2="3" y2="10"></line><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="14" x2="3" y2="14"></line><line x1="17" y1="18" x2="3" y2="18"></line></svg>
-        </button>
-        <button class="toolbar-btn" onclick="document.execCommand('justifyCenter')" title="Centrer">
-            <svg class="icon" viewBox="0 0 24 24"><line x1="18" y1="10" x2="6" y2="10"></line><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="14" x2="3" y2="14"></line><line x1="18" y1="18" x2="6" y2="18"></line></svg>
-        </button>
-        <button class="toolbar-btn" onclick="document.execCommand('justifyRight')" title="Aligner à droite">
-            <svg class="icon" viewBox="0 0 24 24"><line x1="21" y1="10" x2="7" y2="10"></line><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="14" x2="3" y2="14"></line><line x1="21" y1="18" x2="7" y2="18"></line></svg>
-        </button>
-        <button class="toolbar-btn" onclick="document.execCommand('justifyFull')" title="Justifier">
-            <svg class="icon" viewBox="0 0 24 24"><line x1="21" y1="10" x2="3" y2="10"></line><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="14" x2="3" y2="14"></line><line x1="21" y1="18" x2="3" y2="18"></line></svg>
-        </button>
-
-        <div class="separator"></div>
-
-        <button class="toolbar-btn" onclick="document.execCommand('insertUnorderedList')" title="Liste à puces">
-            <svg class="icon" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
-        </button>
-        <button class="toolbar-btn" onclick="document.execCommand('insertOrderedList')" title="Liste numérotée">
-            <svg class="icon" viewBox="0 0 24 24"><line x1="10" y1="6" x2="21" y2="6"></line><line x1="10" y1="12" x2="21" y2="12"></line><line x1="10" y1="18" x2="21" y2="18"></line><path d="M4 6h1v4"></path><path d="M4 10h2"></path><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"></path></svg>
-        </button>
-
-        <div class="separator"></div>
-
-        <select onchange="document.execCommand('foreColor', false, this.value); this.value='#000000'">
-            <option value="#000000" selected>Noir</option>
-            <option value="#404040">Gris foncé</option>
-            <option value="#808080">Gris</option>
-            <option value="#C0C0C0">Gris clair</option>
-            <option value="#FFFFFF">Blanc</option>
-        </select>
-
-        <div class="separator"></div>
-
-        <div class="export-menu">
-            <button class="btn btn-primary" onclick="toggleExportMenu()">
-                <svg class="icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                Exporter
-                <svg class="icon" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><polyline points="6 9 12 15 18 9"></polyline></svg>
-            </button>
-            <div class="export-dropdown" id="exportMenu">
-                <button onclick="exportDocument('pdf')">Exporter en PDF</button>
-                <button onclick="exportDocument('docx')">Exporter en DOCX</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Editor -->
-    <div class="editor-container">
-        <div class="page">
-            <div id="editor" contenteditable="true"></div>
-        </div>
-    </div>
-
-    <!-- PDF Viewer -->
-    <div id="pdfViewer" style="display: none;">
-        <div class="pdf-toolbar">
-            <button class="toolbar-btn" onclick="addTextToPDF()" title="Ajouter du texte">
-                <svg class="icon" viewBox="0 0 24 24"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>
-            </button>
-            <button class="toolbar-btn" onclick="addImageToPDF()" title="Ajouter une image">
-                <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-            </button>
-            <button class="toolbar-btn" onclick="addTableToPDF()" title="Ajouter un tableau">
-                <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
-            </button>
-            <button class="toolbar-btn" onclick="addDrawingToPDF()" title="Dessiner">
-                <svg class="icon" viewBox="0 0 24 24"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
-            </button>
-            <div class="separator"></div>
-            <select id="pdfFontSize" class="pdf-control">
-                <option value="12">12pt</option>
-                <option value="14">14pt</option>
-                <option value="16" selected>16pt</option>
-                <option value="18">18pt</option>
-                <option value="20">20pt</option>
-                <option value="24">24pt</option>
-            </select>
-            <input type="color" id="pdfTextColor" value="#000000" class="pdf-control" title="Couleur du texte">
-            <div class="separator"></div>
-            <button class="toolbar-btn" onclick="deleteSelectedElement()" title="Supprimer l'élément sélectionné">
-                <svg class="icon" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            </button>
-            <button class="btn btn-primary" onclick="savePDFChanges()" style="margin-left: auto;">
-                <svg class="icon" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                Enregistrer PDF
+            <button class="new-doc-btn" id="newDocBtn">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                Nouveau document
             </button>
         </div>
-        <div id="pdfContainer" class="pdf-container"></div>
-    </div>
-
-    <input type="file" id="imageInput" accept="image/*" class="hidden" onchange="handleImageUpload(event)">
-
-    <!-- Auth Modal -->
-    <div class="modal" id="authModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Connexion</h2>
-            </div>
-            <div class="modal-body">
-                <form class="auth-form" onsubmit="handleAuth(event)">
-                    <div class="form-group">
-                        <label>Email</label>
-                        <input type="email" id="authEmail" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Mot de passe</label>
-                        <input type="password" id="authPassword" required>
-                    </div>
-                    <button type="submit" class="btn-full" id="authSubmitBtn">Se connecter</button>
-                </form>
-                <div class="text-center">
-                    <span id="authToggleText">Pas de compte ?</span>
-                    <button class="link-btn" onclick="toggleAuthMode()">S'inscrire</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Document List Modal -->
-    <div class="modal" id="documentListModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Mes documents</h2>
-                <button class="close-btn" onclick="closeDocumentList()">×</button>
-            </div>
-            <div class="modal-body">
-                <div id="documentList" class="doc-list"></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Import Dialog -->
-    <div class="modal" id="importModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Importer un fichier</h2>
-                <button class="close-btn" onclick="closeImportDialog()">×</button>
-            </div>
-            <div class="modal-body">
-                <p style="color: #6b7280; margin-bottom: 16px;">
-                    Sélectionnez un fichier à importer. Formats supportés : TXT, DOCX, PDF
-                </p>
-                <input type="file" id="importFileInput" accept=".txt,.docx,.pdf" class="hidden" onchange="handleFileImport(event)">
-                <button class="btn-full" onclick="document.getElementById('importFileInput').click()">
-                    <svg class="icon" viewBox="0 0 24 24" style="display: inline-block; margin-right: 8px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                    Choisir un fichier
-                </button>
-                <div class="import-info">
-                    <p>Formats supportés :</p>
-                    <ul>
-                        <li>📄 .txt - Fichiers texte</li>
-                        <li>📄 .docx - Documents Word</li>
-                        <li>📄 .pdf - Documents PDF</li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/docx/7.8.2/docx.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-
-    <script>
         
-    </script>
+        <div class="search-box">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M11 11L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <input type="text" placeholder="Rechercher..." id="searchInput">
+        </div>
+
+        <div class="documents-list" id="documentsList">
+            <div class="loading">Chargement des documents...</div>
+        </div>
+
+        <div class="sidebar-footer">
+            <button class="settings-btn" id="settingsBtn">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/>
+                    <path d="M8 1V3M8 13V15M15 8H13M3 8H1M13.5 2.5L12 4M4 12L2.5 13.5M13.5 13.5L12 12M4 4L2.5 2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                Paramètres
+            </button>
+        </div>
+    </aside>
+
+    <!-- Zone principale -->
+    <main class="main-content">
+        <!-- Barre d'outils -->
+        <div class="toolbar">
+            <div class="toolbar-left">
+                <button class="toolbar-btn" id="toggleSidebarBtn">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M3 5H17M3 10H17M3 15H17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <div class="document-status" id="documentStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Sauvegardé</span>
+                </div>
+            </div>
+            <div class="toolbar-right">
+                <button class="toolbar-btn" id="deleteBtn" title="Supprimer le document">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M3 5H17M8 9V15M12 9V15M4 5L5 17H15L16 5M7 5V3H13V5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+                <button class="toolbar-btn primary" id="saveBtn">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M5 10L8 13L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Sauvegarder
+                </button>
+            </div>
+        </div>
+
+        <!-- Éditeur -->
+        <div class="editor-container" id="editorContainer">
+            <div class="editor-welcome" id="welcomeScreen">
+                <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+                    <path d="M32 8L56 18V46L32 56L8 46V18L32 8Z" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+                    <path d="M32 32L44 24M32 32L20 24M32 32V44" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+                </svg>
+                <h1>Bienvenue dans Byflash Editor</h1>
+                <p>Créez un nouveau document ou sélectionnez-en un dans la barre latérale</p>
+                <button class="welcome-btn" id="welcomeNewDocBtn">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                    Créer un document
+                </button>
+            </div>
+
+            <div class="editor-content" id="editorContent" style="display: none;">
+                <input type="text" class="document-title" id="documentTitle" placeholder="Document sans titre">
+                
+                <div class="notion-editor" id="notionEditor">
+                    <div class="editor-line" data-line="0">
+                        <div class="line-placeholder">Tapez '/' pour les commandes, ou commencez à écrire...</div>
+                        <div class="line-input" contenteditable="true"></div>
+                        <div class="line-preview"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal de confirmation -->
+    <div class="modal" id="confirmModal">
+        <div class="modal-content confirm-modal">
+            <div class="modal-header">
+                <h2 id="confirmTitle">Confirmation</h2>
+            </div>
+            <div class="modal-body">
+                <p id="confirmMessage">Êtes-vous sûr ?</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="confirmCancelBtn">Annuler</button>
+                <button class="btn-primary" id="confirmOkBtn">Confirmer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de connexion -->
+    <div class="modal" id="loginModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Connexion à Byflash</h2>
+            </div>
+            <div class="modal-body">
+                <div class="settings-group">
+                    <label for="loginEmail">Email</label>
+                    <input type="email" id="loginEmail" placeholder="votre.email@exemple.com" autocomplete="email">
+                </div>
+                <div class="settings-group">
+                    <label for="loginPassword">Mot de passe</label>
+                    <input type="password" id="loginPassword" placeholder="Votre mot de passe" autocomplete="current-password">
+                </div>
+                <div class="error-message" id="loginError"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-primary full-width" id="loginBtn">Se connecter</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de paramètres -->
+    <div class="modal" id="settingsModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Paramètres</h2>
+                <button class="close-btn" id="closeSettingsBtn">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-group">
+                    <label>Connecté en tant que</label>
+                    <div class="user-info">
+                        <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+                            <circle cx="20" cy="20" r="18" stroke="currentColor" stroke-width="2"/>
+                            <circle cx="20" cy="16" r="6" stroke="currentColor" stroke-width="2"/>
+                            <path d="M8 32C8 26 12 22 20 22C28 22 32 26 32 32" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                        <div>
+                            <div class="user-email" id="userEmail">Chargement...</div>
+                            <small id="userType">Type de compte</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="settings-group">
+                    <label for="apiUrlInput">URL de l'API</label>
+                    <input type="text" id="apiUrlInput" placeholder="https://api.byflash.fr/index.php">
+                    <small>Modifiez uniquement si vous utilisez une API personnalisée</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="logoutBtn">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M6 14H3C2.44772 14 2 13.5523 2 13V3C2 2.44772 2.44772 2 3 2H6M11 11L14 8M14 8L11 5M14 8H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Déconnexion
+                </button>
+                <button class="btn-primary" id="saveSettingsBtn">Enregistrer</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
 </body>
 </html>

@@ -1,839 +1,815 @@
-const API_URL = 'https://api.byflash.fr/index.php';
-let apiToken = localStorage.getItem('apiToken');
-let currentDocumentId = null;
-let isLoginMode = true;
-let pdfElements = []; // Stocker les éléments ajoutés au PDF
-let selectedElement = null;
-let isDragging = false;
-let isResizing = false;
-let dragOffset = { x: 0, y: 0 };
-let currentPDFData = null;
+// Configuration
+const CONFIG = {
+    apiUrl: localStorage.getItem('byflash_api_url') || 'https://api.byflash.fr/index.php',
+    apiKey: localStorage.getItem('byflash_api_key') || '',
+    userEmail: localStorage.getItem('byflash_user_email') || '',
+    userType: localStorage.getItem('byflash_user_type') || ''
+};
 
-// Initialize
+// État de l'application
+let currentDocument = null;
+let documents = [];
+let saveTimeout = null;
+let isSaving = false;
+let editorLines = [];
+
+// Éléments DOM
+const elements = {
+    sidebar: document.getElementById('sidebar'),
+    documentsList: document.getElementById('documentsList'),
+    welcomeScreen: document.getElementById('welcomeScreen'),
+    editorContent: document.getElementById('editorContent'),
+    documentTitle: document.getElementById('documentTitle'),
+    notionEditor: document.getElementById('notionEditor'),
+    documentStatus: document.getElementById('documentStatus'),
+    newDocBtn: document.getElementById('newDocBtn'),
+    welcomeNewDocBtn: document.getElementById('welcomeNewDocBtn'),
+    saveBtn: document.getElementById('saveBtn'),
+    deleteBtn: document.getElementById('deleteBtn'),
+    settingsBtn: document.getElementById('settingsBtn'),
+    toggleSidebarBtn: document.getElementById('toggleSidebarBtn'),
+    searchInput: document.getElementById('searchInput'),
+    confirmModal: document.getElementById('confirmModal'),
+    confirmTitle: document.getElementById('confirmTitle'),
+    confirmMessage: document.getElementById('confirmMessage'),
+    confirmOkBtn: document.getElementById('confirmOkBtn'),
+    confirmCancelBtn: document.getElementById('confirmCancelBtn'),
+    loginModal: document.getElementById('loginModal'),
+    settingsModal: document.getElementById('settingsModal'),
+    loginEmail: document.getElementById('loginEmail'),
+    loginPassword: document.getElementById('loginPassword'),
+    loginBtn: document.getElementById('loginBtn'),
+    loginError: document.getElementById('loginError'),
+    closeSettingsBtn: document.getElementById('closeSettingsBtn'),
+    saveSettingsBtn: document.getElementById('saveSettingsBtn'),
+    logoutBtn: document.getElementById('logoutBtn'),
+    apiUrlInput: document.getElementById('apiUrlInput'),
+    userEmail: document.getElementById('userEmail'),
+    userType: document.getElementById('userType')
+};
+
+// Initialisation
 document.addEventListener('DOMContentLoaded', () => {
-    if (!apiToken) {
-        showAuthModal();
-    } else {
-        loadDocuments();
-        
-        // Vérifier si un ID est présent dans l'URL
-        const urlParams = new URLSearchParams(window.location.search);
-        const fileId = urlParams.get('id');
-        if (fileId) {
-            openDocument(fileId);
-        }
-    }
-
-    document.getElementById('editor').addEventListener('input', updateContent);
+    initializeApp();
+    attachEventListeners();
 });
 
-// Auth Functions
-function showAuthModal() {
-    document.getElementById('authModal').classList.add('active');
+function initializeApp() {
+    if (!CONFIG.apiKey || !CONFIG.userEmail) {
+        showLoginModal();
+        return;
+    }
+    
+    updateUserInfo();
+    loadDocuments();
+    
+    // Configurer marked.js
+    if (typeof marked !== 'undefined') {
+        marked.setOptions({
+            breaks: true,
+            gfm: true
+        });
+    }
+    
+    // Initialiser l'éditeur Notion-like
+    initNotionEditor();
 }
 
-function toggleAuthMode() {
-    isLoginMode = !isLoginMode;
-    document.getElementById('authSubmitBtn').textContent = isLoginMode ? 'Se connecter' : "S'inscrire";
-    document.getElementById('authToggleText').textContent = isLoginMode ? 'Pas de compte ?' : 'Déjà un compte ?';
-    document.querySelector('#authModal .link-btn').textContent = isLoginMode ? "S'inscrire" : 'Se connecter';
+function attachEventListeners() {
+    elements.loginBtn.addEventListener('click', handleLogin);
+    elements.loginPassword.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') handleLogin();
+    });
+    
+    elements.confirmCancelBtn.addEventListener('click', hideConfirmModal);
+    
+    elements.newDocBtn.addEventListener('click', createNewDocument);
+    elements.welcomeNewDocBtn.addEventListener('click', createNewDocument);
+    
+    elements.saveBtn.addEventListener('click', () => saveDocument(true));
+    elements.documentTitle.addEventListener('input', () => autoSave());
+    
+    elements.deleteBtn.addEventListener('click', deleteCurrentDocument);
+    elements.searchInput.addEventListener('input', filterDocuments);
+    
+    elements.settingsBtn.addEventListener('click', showSettingsModal);
+    elements.closeSettingsBtn.addEventListener('click', hideSettingsModal);
+    elements.saveSettingsBtn.addEventListener('click', saveSettings);
+    elements.logoutBtn.addEventListener('click', handleLogout);
+    
+    elements.toggleSidebarBtn.addEventListener('click', toggleSidebar);
+    
+    document.addEventListener('keydown', handleKeyboardShortcuts);
 }
 
-async function handleAuth(event) {
-    event.preventDefault();
-    const email = document.getElementById('authEmail').value;
-    const password = document.getElementById('authPassword').value;
+// === NOTION-LIKE EDITOR ===
 
+function initNotionEditor() {
+    editorLines = [];
+    const firstLine = elements.notionEditor.querySelector('.editor-line');
+    if (firstLine) {
+        setupEditorLine(firstLine, 0);
+    }
+}
+
+function setupEditorLine(lineElement, index) {
+    const input = lineElement.querySelector('.line-input');
+    const preview = lineElement.querySelector('.line-preview');
+    const placeholder = lineElement.querySelector('.line-placeholder');
+    
+    if (!input) return;
+    
+    // Stocker la référence
+    editorLines[index] = {
+        element: lineElement,
+        input: input,
+        preview: preview,
+        placeholder: placeholder
+    };
+
+    // À ajouter dans setupEditorLine (script.js)
+    preview.addEventListener('click', () => {
+        preview.classList.remove('active');
+        input.classList.remove('hidden');
+        input.focus();
+    });
+    
+    // Événements
+    input.addEventListener('input', () => {
+        handleLineInput(index);
+        autoSave();
+    });
+    
+    input.addEventListener('keydown', (e) => {
+        handleLineKeydown(e, index);
+    });
+    
+    input.addEventListener('focus', () => {
+        if (placeholder) placeholder.style.display = 'none';
+        input.classList.add('editing');
+        input.classList.remove('hidden');
+        preview.classList.remove('active');
+    });
+    
+    input.addEventListener('blur', () => {
+        const text = input.textContent.trim();
+        if (text === '' && placeholder) {
+            placeholder.style.display = 'block';
+        }
+        renderLinePreview(index);
+    });
+}
+
+function handleLineInput(index) {
+    const line = editorLines[index];
+    if (!line) return;
+    
+    const text = line.input.textContent;
+    
+    // Masquer le placeholder si du texte est entré
+    if (text && line.placeholder) {
+        line.placeholder.style.display = 'none';
+    } else if (!text && line.placeholder) {
+        line.placeholder.style.display = 'block';
+    }
+}
+
+function handleLineKeydown(e, index) {
+    const line = editorLines[index];
+    if (!line) return;
+    
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        
+        // Rendre la ligne actuelle et créer une nouvelle ligne
+        renderLinePreview(index);
+        createNewLine(index + 1);
+    } else if (e.key === 'Backspace') {
+        const text = line.input.textContent;
+        
+        // Si la ligne est vide et qu'on appuie sur backspace
+        if (text === '' && index > 0) {
+            e.preventDefault();
+            deleteLine(index);
+        }
+    }
+}
+
+function renderLinePreview(index) {
+    const line = editorLines[index];
+    if (!line) return;
+    
+    const text = line.input.textContent.trim();
+    
+    if (text === '') {
+        line.preview.classList.remove('active');
+        line.input.classList.remove('hidden');
+        return;
+    }
+    
+    // Convertir le Markdown en HTML
+    if (typeof marked !== 'undefined') {
+        const html = marked.parseInline(text);
+        line.preview.innerHTML = html;
+        
+        // Si c'est un titre, une liste, etc., utiliser marked.parse pour avoir le bon rendu
+        if (text.startsWith('#') || text.startsWith('-') || text.startsWith('*') || 
+            text.startsWith('>') || text.startsWith('```') || /^\d+\./.test(text)) {
+            line.preview.innerHTML = marked.parse(text);
+        }
+        
+        line.preview.classList.add('active');
+        line.input.classList.add('hidden');
+    }
+}
+
+function createNewLine(index) {
+    const newLine = document.createElement('div');
+    newLine.className = 'editor-line';
+    newLine.dataset.line = index;
+    newLine.innerHTML = `
+        <div class="line-placeholder">Tapez '/' pour les commandes, ou commencez à écrire...</div>
+        <div class="line-input" contenteditable="true"></div>
+        <div class="line-preview"></div>
+    `;
+    
+    // Insérer la nouvelle ligne
+    const currentLine = editorLines[index - 1];
+    if (currentLine && currentLine.element.nextSibling) {
+        elements.notionEditor.insertBefore(newLine, currentLine.element.nextSibling);
+    } else {
+        elements.notionEditor.appendChild(newLine);
+    }
+    
+    // Réorganiser les indices
+    editorLines.splice(index, 0, null);
+    setupEditorLine(newLine, index);
+    
+    // Focus sur la nouvelle ligne
+    const input = newLine.querySelector('.line-input');
+    if (input) {
+        input.focus();
+    }
+}
+
+function deleteLine(index) {
+    if (index === 0 && editorLines.length === 1) return; // Ne pas supprimer la dernière ligne
+    
+    const line = editorLines[index];
+    if (!line) return;
+    
+    // Supprimer l'élément du DOM
+    line.element.remove();
+    
+    // Supprimer de la liste
+    editorLines.splice(index, 1);
+    
+    // Focus sur la ligne précédente
+    if (index > 0) {
+        const prevLine = editorLines[index - 1];
+        if (prevLine && prevLine.input) {
+            prevLine.input.focus();
+            
+            // Placer le curseur à la fin
+            const range = document.createRange();
+            const sel = window.getSelection();
+            range.selectNodeContents(prevLine.input);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+    }
+}
+
+function getEditorContent() {
+    // Récupérer tout le contenu de l'éditeur en Markdown
+    let content = [];
+    
+    editorLines.forEach(line => {
+        if (line && line.input) {
+            const text = line.input.textContent.trim();
+            if (text) {
+                content.push(text);
+            }
+        }
+    });
+    
+    return content.join('\n');
+}
+
+function setEditorContent(markdown) {
+    // Vider l'éditeur
+    elements.notionEditor.innerHTML = '';
+    editorLines = [];
+    
+    // Diviser le contenu en lignes
+    const lines = markdown ? markdown.split('\n') : [''];
+    
+    lines.forEach((lineText, index) => {
+        const newLine = document.createElement('div');
+        newLine.className = 'editor-line';
+        newLine.dataset.line = index;
+        newLine.innerHTML = `
+            <div class="line-placeholder" style="display: ${lineText ? 'none' : 'block'}">Tapez '/' pour les commandes, ou commencez à écrire...</div>
+            <div class="line-input" contenteditable="true">${lineText}</div>
+            <div class="line-preview"></div>
+        `;
+        
+        elements.notionEditor.appendChild(newLine);
+        setupEditorLine(newLine, index);
+        
+        // Rendre la prévisualisation si la ligne n'est pas vide
+        if (lineText.trim()) {
+            renderLinePreview(index);
+        }
+    });
+    
+    // Si aucune ligne n'existe, créer une ligne vide
+    if (lines.length === 0) {
+        createNewLine(0);
+    }
+}
+
+// === CONFIRMATION MODAL ===
+
+function showConfirm(title, message) {
+    return new Promise((resolve) => {
+        elements.confirmTitle.textContent = title;
+        elements.confirmMessage.textContent = message;
+        elements.confirmModal.classList.add('active');
+        
+        const newOkBtn = elements.confirmOkBtn.cloneNode(true);
+        elements.confirmOkBtn.parentNode.replaceChild(newOkBtn, elements.confirmOkBtn);
+        elements.confirmOkBtn = newOkBtn;
+        
+        elements.confirmOkBtn.addEventListener('click', () => {
+            hideConfirmModal();
+            resolve(true);
+        });
+        
+        elements.confirmCancelBtn.onclick = () => {
+            hideConfirmModal();
+            resolve(false);
+        };
+    });
+}
+
+function hideConfirmModal() {
+    elements.confirmModal.classList.remove('active');
+}
+
+// === AUTHENTICATION ===
+
+async function handleLogin() {
+    const email = elements.loginEmail.value.trim();
+    const password = elements.loginPassword.value;
+    
+    if (!email || !password) {
+        showLoginError('Veuillez remplir tous les champs');
+        return;
+    }
+    
+    elements.loginBtn.disabled = true;
+    elements.loginBtn.textContent = 'Connexion...';
+    
     try {
-        const response = await fetch(`${API_URL}?action=login`, {
+        const response = await fetch(`${CONFIG.apiUrl}?action=login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password })
         });
-
-        const data = await response.json();
         
-        if (data.success) {
-            apiToken = data.api_token;
-            localStorage.setItem('apiToken', apiToken);
-            document.getElementById('authModal').classList.remove('active');
-            loadDocuments();
-
-            // Vérifier si un ID était demandé dans l'URL avant la connexion
-            const urlParams = new URLSearchParams(window.location.search);
-            const fileId = urlParams.get('id');
-            if (fileId) {
-                openDocument(fileId);
-            }
-        } else {
-            alert(data.error || 'Erreur de connexion');
+        const result = await response.json();
+        
+        if (!result.success) {
+            throw new Error(result.error || 'Identifiants incorrects');
         }
+        
+        CONFIG.apiKey = result.api_token;
+        CONFIG.userEmail = result.email || email;
+        CONFIG.userType = result.user_type || 'free';
+        
+        localStorage.setItem('byflash_api_key', CONFIG.apiKey);
+        localStorage.setItem('byflash_user_email', CONFIG.userEmail);
+        localStorage.setItem('byflash_user_type', CONFIG.userType);
+        
+        hideLoginModal();
+        updateUserInfo();
+        loadDocuments();
+        
+        showNotification('Connexion réussie', 'success');
+        
     } catch (error) {
-        alert('Erreur de connexion au serveur');
+        showLoginError(error.message);
+    } finally {
+        elements.loginBtn.disabled = false;
+        elements.loginBtn.textContent = 'Se connecter';
     }
 }
 
-function logout() {
-    localStorage.removeItem('apiToken');
-    apiToken = null;
-    currentDocumentId = null;
-    document.getElementById('editor').innerHTML = '';
-    document.getElementById('documentTitle').value = 'Untitled Document';
-    showAuthModal();
+async function handleLogout() {
+    const confirmed = await showConfirm('Déconnexion', 'Êtes-vous sûr de vouloir vous déconnecter ?');
+    if (!confirmed) return;
+    
+    localStorage.removeItem('byflash_api_key');
+    localStorage.removeItem('byflash_user_email');
+    localStorage.removeItem('byflash_user_type');
+    
+    CONFIG.apiKey = '';
+    CONFIG.userEmail = '';
+    CONFIG.userType = '';
+    
+    hideSettingsModal();
+    showWelcomeScreen();
+    documents = [];
+    currentDocument = null;
+    elements.documentsList.innerHTML = '';
+    
+    showLoginModal();
+    showNotification('Déconnexion réussie', 'success');
+}
+
+function updateUserInfo() {
+    if (elements.userEmail) {
+        elements.userEmail.textContent = CONFIG.userEmail;
+    }
+    if (elements.userType) {
+        const typeLabels = {
+            'free': 'Compte Gratuit',
+            'premium': 'Compte Premium',
+            'enterprise': 'Compte Enterprise'
+        };
+        elements.userType.textContent = typeLabels[CONFIG.userType] || 'Compte Gratuit';
+    }
+}
+
+function showLoginModal() {
+    elements.loginModal.classList.add('active');
+    elements.loginEmail.value = '';
+    elements.loginPassword.value = '';
+    elements.loginError.classList.remove('show');
+}
+
+function hideLoginModal() {
+    elements.loginModal.classList.remove('active');
+}
+
+function showLoginError(message) {
+    elements.loginError.textContent = message;
+    elements.loginError.classList.add('show');
+}
+
+// === API FUNCTIONS ===
+
+async function apiRequest(action, method = 'GET', data = null) {
+    try {
+        const url = `${CONFIG.apiUrl}?action=${action}`;
+        const options = {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${CONFIG.apiKey}`
+            }
+        };
+        
+        if (data && method !== 'GET') {
+            options.body = JSON.stringify(data);
+        }
+        
+        const response = await fetch(url, options);
+        const result = await response.json();
+        
+        if (!result.success) {
+            if (response.status === 401) {
+                showNotification('Session expirée, veuillez vous reconnecter', 'error');
+                setTimeout(() => handleLogout(), 1500);
+                throw new Error('Session expirée');
+            }
+            throw new Error(result.error || 'Erreur API');
+        }
+        
+        return result;
+    } catch (error) {
+        console.error('API Error:', error);
+        if (error.message !== 'Session expirée') {
+            showNotification(error.message || 'Erreur de connexion à l\'API', 'error');
+        }
+        throw error;
+    }
 }
 
 async function loadDocuments() {
     try {
-        // Récupérer les fichiers de type document (HTML/TXT/PDF) depuis file_transfers
-        const response = await fetch(`${API_URL}?action=files`, {
-            headers: { 'Authorization': `Bearer ${apiToken}` }
-        });
-
-        const data = await response.json();
+        elements.documentsList.innerHTML = '<div class="loading">Chargement des documents...</div>';
         
-        if (data.success) {
-            // Filtrer les fichiers HTML/TXT/PDF (documents éditeur)
-            const documents = (data.files || []).filter(file => 
-                file.name.endsWith('.html') || 
-                file.name.endsWith('.txt') || 
-                file.name.endsWith('.htm') ||
-                file.name.endsWith('.pdf')
-            );
-            renderDocumentList(documents);
-        }
+        const result = await apiRequest('get_documents', 'GET');
+        documents = result.documents || [];
+        
+        renderDocumentsList();
     } catch (error) {
-        console.error('Error loading documents:', error);
+        elements.documentsList.innerHTML = '<div class="no-documents">Erreur de chargement</div>';
     }
 }
 
-function renderDocumentList(documents) {
-    const listEl = document.getElementById('documentList');
+async function loadDocument(docId) {
+    try {
+        const result = await apiRequest(`get_documents&id=${docId}`, 'GET');
+        const doc = result.document;
+        
+        currentDocument = doc;
+        showEditor();
+        
+        elements.documentTitle.value = doc.title || 'Document sans titre';
+        setEditorContent(doc.content || '');
+        
+        updateDocumentStatus('saved');
+        highlightActiveDocument(docId);
+    } catch (error) {
+        showNotification('Impossible de charger le document', 'error');
+    }
+}
+
+async function saveDocument(manual = false) {
+    if (isSaving) return;
     
-    if (documents.length === 0) {
-        listEl.innerHTML = '<div class="empty-state">Aucun document. Créez votre premier document !</div>';
+    const content = getEditorContent();
+    
+    if (!currentDocument && !elements.documentTitle.value && !content) {
         return;
     }
-
-    listEl.innerHTML = documents.map(doc => `
-        <div class="doc-item" onclick="openDocument('${doc.id}')">
-            <div class="doc-info">
-                <div class="doc-icon">📄</div>
-                <div class="doc-details">
-                    <h3>${doc.name}</h3>
-                    <p>${new Date(doc.created_at).toLocaleString('fr-FR')}</p>
-                </div>
-            </div>
-            <div class="doc-actions">
-                <button class="icon-btn" onclick="deleteDocument(event, '${doc.id}')" title="Supprimer">
-                    <svg class="icon" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                </button>
-            </div>
-        </div>
-    `).join('');
+    
+    isSaving = true;
+    updateDocumentStatus('saving');
+    
+    try {
+        const data = {
+            id: currentDocument?.id || null,
+            title: elements.documentTitle.value || 'Document sans titre',
+            content: content
+        };
+        
+        const result = await apiRequest('save_document', 'POST', data);
+        
+        if (!currentDocument) {
+            currentDocument = { id: result.document_id };
+        }
+        
+        updateDocumentStatus('saved');
+        
+        if (manual) {
+            showNotification('Document sauvegardé', 'success');
+        }
+        
+        await loadDocuments();
+        highlightActiveDocument(currentDocument.id);
+        
+    } catch (error) {
+        updateDocumentStatus('error');
+        showNotification('Erreur lors de la sauvegarde', 'error');
+    } finally {
+        isSaving = false;
+    }
 }
 
-async function openDocument(id) {
+async function deleteCurrentDocument() {
+    if (!currentDocument) return;
+    
+    const confirmed = await showConfirm(
+        'Supprimer le document',
+        'Êtes-vous sûr de vouloir supprimer ce document ? Cette action est irréversible.'
+    );
+    
+    if (!confirmed) return;
+    
     try {
-        // Récupérer les infos du fichier d'abord
-        const filesResponse = await fetch(`${API_URL}?action=files`, {
-            headers: { 'Authorization': `Bearer ${apiToken}` }
-        });
-        const filesData = await filesResponse.json();
-        const fileInfo = filesData.files.find(f => f.id === id);
+        await apiRequest('delete_document', 'POST', { id: currentDocument.id });
+        showNotification('Document supprimé', 'success');
         
-        if (!fileInfo) {
-            alert('Fichier introuvable');
-            return;
-        }
+        currentDocument = null;
+        showWelcomeScreen();
+        loadDocuments();
+    } catch (error) {
+        showNotification('Erreur lors de la suppression', 'error');
+    }
+}
 
-        currentDocumentId = id;
-        document.getElementById('documentTitle').value = fileInfo.name.replace(/\.(html|htm|txt|pdf)$/i, '');
+// === UI FUNCTIONS ===
 
-        // Si c'est un PDF, afficher le lecteur PDF
-        if (fileInfo.name.toLowerCase().endsWith('.pdf')) {
-            await openPDFViewer(id);
-            closeDocumentList();
-            return;
-        }
-
-        // Sinon, télécharger le contenu HTML/TXT
-        const response = await fetch(`${API_URL}?action=download&id=${id}`, {
-            headers: { 'Authorization': `Bearer ${apiToken}` }
+function renderDocumentsList() {
+    if (documents.length === 0) {
+        elements.documentsList.innerHTML = '<div class="no-documents">Aucun document</div>';
+        return;
+    }
+    
+    elements.documentsList.innerHTML = documents
+        .map(doc => `
+            <div class="document-item" data-id="${doc.id}">
+                <div class="document-item-title">${escapeHtml(doc.title || 'Sans titre')}</div>
+                <div class="document-item-date">${formatDate(doc.updated_at || doc.created_at)}</div>
+            </div>
+        `)
+        .join('');
+    
+    document.querySelectorAll('.document-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const docId = item.getAttribute('data-id');
+            loadDocument(docId);
         });
+    });
+}
 
-        if (response.ok) {
-            const htmlContent = await response.text();
-            document.getElementById('editor').innerHTML = htmlContent;
-            showEditor();
-            closeDocumentList();
+function highlightActiveDocument(docId) {
+    document.querySelectorAll('.document-item').forEach(item => {
+        if (item.getAttribute('data-id') === docId) {
+            item.classList.add('active');
         } else {
-            alert('Erreur lors du chargement du document');
+            item.classList.remove('active');
         }
-    } catch (error) {
-        alert('Erreur lors du chargement du document');
-        console.error(error);
-    }
+    });
 }
 
-async function openPDFViewer(fileId) {
-    try {
-        // Récupérer le blob du PDF
-        const response = await fetch(`${API_URL}?action=download&id=${fileId}`, {
-            headers: { 'Authorization': `Bearer ${apiToken}` }
-        });
+function createNewDocument() {
+    currentDocument = null;
+    showEditor();
+    elements.documentTitle.value = '';
+    setEditorContent('');
+    elements.documentTitle.focus();
+    updateDocumentStatus('saved');
+    
+    document.querySelectorAll('.document-item').forEach(item => {
+        item.classList.remove('active');
+    });
+}
 
-        if (!response.ok) {
-            throw new Error('Erreur lors du téléchargement du PDF');
-        }
-
-        const blob = await response.blob();
-        const arrayBuffer = await blob.arrayBuffer();
-        currentPDFData = arrayBuffer;
-
-        // Afficher le lecteur PDF
-        showPDFViewer();
-
-        // Charger le PDF avec PDF.js
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-        
-        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-        const pdf = await loadingTask.promise;
-        
-        // Afficher toutes les pages
-        const container = document.getElementById('pdfContainer');
-        container.innerHTML = '';
-        pdfElements = [];
-        
-        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-            const page = await pdf.getPage(pageNum);
-            
-            // Créer un canvas pour chaque page
-            const canvas = document.createElement('canvas');
-            canvas.className = 'pdf-page-canvas';
-            const context = canvas.getContext('2d');
-            
-            // Calculer la taille
-            const viewport = page.getViewport({ scale: 1.5 });
-            canvas.width = viewport.width;
-            canvas.height = viewport.height;
-            
-            // Rendre la page
-            await page.render({
-                canvasContext: context,
-                viewport: viewport
-            }).promise;
-            
-            // Ajouter le canvas au container
-            const pageWrapper = document.createElement('div');
-            pageWrapper.className = 'pdf-page-wrapper';
-            pageWrapper.style.width = viewport.width + 'px';
-            pageWrapper.style.height = viewport.height + 'px';
-            pageWrapper.dataset.pageNum = pageNum;
-            pageWrapper.appendChild(canvas);
-            container.appendChild(pageWrapper);
-        }
-        
-    } catch (error) {
-        alert('Erreur lors de l\'ouverture du PDF : ' + error.message);
-        console.error(error);
-        showEditor();
-    }
+function showWelcomeScreen() {
+    elements.welcomeScreen.style.display = 'flex';
+    elements.editorContent.style.display = 'none';
 }
 
 function showEditor() {
-    document.querySelector('.editor-container').style.display = 'block';
-    document.getElementById('pdfViewer').style.display = 'none';
-    document.querySelector('.toolbar').style.display = 'flex';
+    elements.welcomeScreen.style.display = 'none';
+    elements.editorContent.style.display = 'block';
 }
 
-function showPDFViewer() {
-    document.querySelector('.editor-container').style.display = 'none';
-    document.getElementById('pdfViewer').style.display = 'flex';
-    document.querySelector('.toolbar').style.display = 'none';
-}
-
-// Fonctions d'édition PDF
-function addTextToPDF() {
-    const text = prompt('Entrez le texte à ajouter:');
-    if (!text) return;
-
-    const pages = document.querySelectorAll('.pdf-page-wrapper');
-    if (pages.length === 0) return;
-
-    const firstPage = pages[0];
-    const fontSize = document.getElementById('pdfFontSize').value;
-    const color = document.getElementById('pdfTextColor').value;
-
-    const textElement = document.createElement('div');
-    textElement.className = 'pdf-element pdf-text';
-    textElement.contentEditable = true;
-    textElement.textContent = text;
-    textElement.style.fontSize = fontSize + 'px';
-    textElement.style.color = color;
-    textElement.style.left = '50px';
-    textElement.style.top = '50px';
-
-    addResizeHandles(textElement);
-    makeElementDraggable(textElement);
-    firstPage.appendChild(textElement);
-
-    pdfElements.push({
-        type: 'text',
-        content: text,
-        fontSize: fontSize,
-        color: color,
-        x: 50,
-        y: 50,
-        pageNum: 1
-    });
-}
-
-function addImageToPDF() {
-    document.getElementById('imageInput').click();
-}
-
-function handleImageUpload(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        const pages = document.querySelectorAll('.pdf-page-wrapper');
-        if (pages.length === 0) return;
-
-        const firstPage = pages[0];
-        const img = document.createElement('img');
-        img.className = 'pdf-element pdf-image';
-        img.src = e.target.result;
-        img.style.left = '50px';
-        img.style.top = '50px';
-
-        addResizeHandles(img);
-        makeElementDraggable(img);
-        firstPage.appendChild(img);
-
-        pdfElements.push({
-            type: 'image',
-            src: e.target.result,
-            x: 50,
-            y: 50,
-            pageNum: 1
-        });
+function updateDocumentStatus(status) {
+    elements.documentStatus.className = 'document-status ' + status;
+    
+    const statusTexts = {
+        saved: 'Sauvegardé',
+        saving: 'Sauvegarde...',
+        error: 'Erreur'
     };
-    reader.readAsDataURL(file);
-    event.target.value = '';
-}
-
-function addTableToPDF() {
-    const rows = prompt('Nombre de lignes:', '3');
-    const cols = prompt('Nombre de colonnes:', '3');
     
-    if (!rows || !cols) return;
-
-    const pages = document.querySelectorAll('.pdf-page-wrapper');
-    if (pages.length === 0) return;
-
-    const firstPage = pages[0];
-    const table = document.createElement('table');
-    table.className = 'pdf-element pdf-table';
-    table.style.left = '50px';
-    table.style.top = '50px';
-
-    for (let i = 0; i < parseInt(rows); i++) {
-        const tr = document.createElement('tr');
-        for (let j = 0; j < parseInt(cols); j++) {
-            const td = document.createElement('td');
-            td.contentEditable = true;
-            td.textContent = '';
-            tr.appendChild(td);
-        }
-        table.appendChild(tr);
-    }
-
-    addResizeHandles(table);
-    makeElementDraggable(table);
-    firstPage.appendChild(table);
-
-    pdfElements.push({
-        type: 'table',
-        rows: parseInt(rows),
-        cols: parseInt(cols),
-        x: 50,
-        y: 50,
-        pageNum: 1
-    });
+    elements.documentStatus.querySelector('.status-text').textContent = statusTexts[status] || 'Sauvegardé';
 }
 
-function addDrawingToPDF() {
-    alert('Mode dessin: Cliquez sur "Ajouter du texte" pour ajouter des annotations');
+function autoSave() {
+    updateDocumentStatus('saving');
+    
+    clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(() => {
+        saveDocument(false);
+    }, 2000);
 }
 
-function addResizeHandles(element) {
-    const handles = ['nw', 'ne', 'sw', 'se'];
-    handles.forEach(pos => {
-        const handle = document.createElement('div');
-        handle.className = `resize-handle ${pos}`;
-        handle.addEventListener('mousedown', (e) => {
-            e.stopPropagation();
-            startResize(e, element, pos);
-        });
-        element.appendChild(handle);
-    });
-}
-
-function makeElementDraggable(element) {
-    element.addEventListener('mousedown', (e) => {
-        if (e.target.classList.contains('resize-handle')) return;
+function filterDocuments() {
+    const searchTerm = elements.searchInput.value.toLowerCase();
+    
+    document.querySelectorAll('.document-item').forEach(item => {
+        const title = item.querySelector('.document-item-title').textContent.toLowerCase();
         
-        selectElement(element);
-        isDragging = true;
-        const rect = element.getBoundingClientRect();
-        const parentRect = element.parentElement.getBoundingClientRect();
-        dragOffset.x = e.clientX - (rect.left - parentRect.left);
-        dragOffset.y = e.clientY - (rect.top - parentRect.top);
+        if (title.includes(searchTerm)) {
+            item.style.display = 'block';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+function toggleSidebar() {
+    elements.sidebar.classList.toggle('collapsed');
+}
+
+// === SETTINGS ===
+
+function showSettingsModal() {
+    elements.apiUrlInput.value = CONFIG.apiUrl;
+    updateUserInfo();
+    elements.settingsModal.classList.add('active');
+}
+
+function hideSettingsModal() {
+    elements.settingsModal.classList.remove('active');
+}
+
+function saveSettings() {
+    const newApiUrl = elements.apiUrlInput.value.trim();
+    
+    if (!newApiUrl) {
+        showNotification('Veuillez remplir l\'URL de l\'API', 'error');
+        return;
+    }
+    
+    CONFIG.apiUrl = newApiUrl;
+    localStorage.setItem('byflash_api_url', CONFIG.apiUrl);
+    
+    hideSettingsModal();
+    showNotification('Paramètres enregistrés', 'success');
+}
+
+// === KEYBOARD SHORTCUTS ===
+
+function handleKeyboardShortcuts(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
-    });
-}
-
-function selectElement(element) {
-    if (selectedElement) {
-        selectedElement.classList.remove('selected');
-    }
-    selectedElement = element;
-    element.classList.add('selected');
-}
-
-function deleteSelectedElement() {
-    if (selectedElement) {
-        selectedElement.remove();
-        selectedElement = null;
+        saveDocument(true);
     }
 }
 
-document.addEventListener('mousemove', (e) => {
-    if (isDragging && selectedElement) {
-        const parentRect = selectedElement.parentElement.getBoundingClientRect();
-        const newX = e.clientX - parentRect.left - dragOffset.x;
-        const newY = e.clientY - parentRect.top - dragOffset.y;
-        selectedElement.style.left = Math.max(0, newX) + 'px';
-        selectedElement.style.top = Math.max(0, newY) + 'px';
-    }
-});
+// === UTILITY FUNCTIONS ===
 
-document.addEventListener('mouseup', () => {
-    isDragging = false;
-    isResizing = false;
-});
-
-function startResize(e, element, position) {
-    isResizing = true;
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const startWidth = element.offsetWidth;
-    const startHeight = element.offsetHeight;
-    const startLeft = parseInt(element.style.left || 0);
-    const startTop = parseInt(element.style.top || 0);
-
-    function resize(e) {
-        if (!isResizing) return;
-
-        const deltaX = e.clientX - startX;
-        const deltaY = e.clientY - startY;
-
-        if (position.includes('e')) {
-            element.style.width = (startWidth + deltaX) + 'px';
-        }
-        if (position.includes('s')) {
-            element.style.height = (startHeight + deltaY) + 'px';
-        }
-        if (position.includes('w')) {
-            element.style.width = (startWidth - deltaX) + 'px';
-            element.style.left = (startLeft + deltaX) + 'px';
-        }
-        if (position.includes('n')) {
-            element.style.height = (startHeight - deltaY) + 'px';
-            element.style.top = (startTop + deltaY) + 'px';
-        }
-    }
-
-    document.addEventListener('mousemove', resize);
-    document.addEventListener('mouseup', () => {
-        isResizing = false;
-        document.removeEventListener('mousemove', resize);
-    }, { once: true });
-}
-
-async function savePDFChanges() {
-    if (!currentPDFData) {
-        alert('Aucun PDF chargé');
-        return;
-    }
-
-    try {
-        const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF();
-        
-        // Charger le PDF original
-        const loadingTask = pdfjsLib.getDocument({ data: currentPDFData });
-        const pdfDoc = await loadingTask.promise;
-
-        // Pour chaque page
-        const pages = document.querySelectorAll('.pdf-page-wrapper');
-        for (let i = 0; i < pages.length; i++) {
-            if (i > 0) pdf.addPage();
-            
-            const pageWrapper = pages[i];
-            const canvas = pageWrapper.querySelector('canvas');
-            
-            // Ajouter le contenu original
-            const imgData = canvas.toDataURL('image/jpeg', 0.95);
-            pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297);
-
-            // Ajouter les éléments ajoutés
-            const elements = pageWrapper.querySelectorAll('.pdf-element');
-            elements.forEach(element => {
-                const x = parseInt(element.style.left) * 0.264583; // px to mm
-                const y = parseInt(element.style.top) * 0.264583;
-
-                if (element.classList.contains('pdf-text')) {
-                    pdf.setFontSize(parseInt(element.style.fontSize) || 16);
-                    pdf.text(element.textContent, x, y);
-                } else if (element.classList.contains('pdf-image')) {
-                    const imgSrc = element.src;
-                    const width = element.offsetWidth * 0.264583;
-                    const height = element.offsetHeight * 0.264583;
-                    pdf.addImage(imgSrc, 'JPEG', x, y, width, height);
-                }
-            });
-        }
-
-        // Sauvegarder le PDF
-        const pdfBlob = pdf.output('blob');
-        const title = document.getElementById('documentTitle').value;
-        const file = new File([pdfBlob], `${title}.pdf`, { type: 'application/pdf' });
-
-        // Upload
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('group_id', 'editor-docs');
-        formData.append('password', '');
-
-        if (currentDocumentId) {
-            await fetch(`${API_URL}?action=delete`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${apiToken}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ id: currentDocumentId, type: 'file' })
-            });
-        }
-
-        const response = await fetch(`${API_URL}?action=upload`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${apiToken}` },
-            body: formData
-        });
-
-        const data = await response.json();
-        if (data.success) {
-            currentDocumentId = data.fileId;
-            alert('PDF enregistré avec succès!');
-            loadDocuments();
-        } else {
-            alert('Erreur lors de la sauvegarde');
-        }
-    } catch (error) {
-        alert('Erreur lors de la sauvegarde du PDF');
-        console.error(error);
-    }
-}
-
-async function saveDocument() {
-    if (!apiToken) {
-        alert('Veuillez vous connecter pour enregistrer');
-        return;
-    }
-
-    const title = document.getElementById('documentTitle').value;
-    const content = document.getElementById('editor').innerHTML;
-
-    try {
-        // Créer un Blob avec le contenu HTML
-        const blob = new Blob([content], { type: 'text/html' });
-        const file = new File([blob], `${title}.html`, { type: 'text/html' });
-
-        // Créer un FormData pour l'upload
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('group_id', 'editor-docs'); // Groupe spécial pour les documents de l'éditeur
-        formData.append('password', ''); // Pas de mot de passe
-
-        // Si c'est une mise à jour, supprimer l'ancien fichier
-        if (currentDocumentId) {
-            await fetch(`${API_URL}?action=delete`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${apiToken}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ id: currentDocumentId, type: 'file' })
-            });
-        }
-
-        // Upload le nouveau fichier
-        const response = await fetch(`${API_URL}?action=upload`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${apiToken}`
-            },
-            body: formData
-        });
-
-        const data = await response.json();
-        
-        if (data.success) {
-            currentDocumentId = data.fileId;
-            alert('Document enregistré avec succès !');
-            loadDocuments();
-        } else {
-            alert(data.error || 'Erreur lors de l\'enregistrement');
-        }
-    } catch (error) {
-        alert('Erreur lors de l\'enregistrement du document');
-        console.error(error);
-    }
-}
-
-async function deleteDocument(event, id) {
-    event.stopPropagation();
+function formatDate(dateString) {
+    if (!dateString) return '';
     
-    if (!confirm('Êtes-vous sûr de vouloir supprimer ce document ?')) {
-        return;
-    }
-
-    try {
-        const response = await fetch(`${API_URL}?action=delete`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${apiToken}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ id, type: 'file' })
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffTime = Math.abs(now - date);
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) {
+        return 'Aujourd\'hui';
+    } else if (diffDays === 1) {
+        return 'Hier';
+    } else if (diffDays < 7) {
+        return `Il y a ${diffDays} jours`;
+    } else {
+        return date.toLocaleDateString('fr-FR', {
+            day: 'numeric',
+            month: 'short',
+            year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
         });
+    }
+}
 
-        const data = await response.json();
-        
-        if (data.success) {
-            if (currentDocumentId === id) {
-                newDocument();
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function showNotification(message, type = 'info') {
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 16px 24px;
+        background: ${type === 'success' ? '#28a745' : type === 'error' ? '#dc3545' : '#495057'};
+        color: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        z-index: 2000;
+        font-size: 14px;
+        font-weight: 500;
+        animation: slideInRight 0.3s ease;
+    `;
+    notification.textContent = message;
+    
+    if (!document.getElementById('notification-style')) {
+        const style = document.createElement('style');
+        style.id = 'notification-style';
+        style.textContent = `
+            @keyframes slideInRight {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
             }
-            loadDocuments();
-            alert('Document supprimé avec succès');
-        } else {
-            alert('Erreur lors de la suppression');
-        }
-    } catch (error) {
-        alert('Erreur lors de la suppression du document');
+            @keyframes slideOutRight {
+                from { transform: translateX(0); opacity: 1; }
+                to { transform: translateX(100%); opacity: 0; }
+            }
+        `;
+        document.head.appendChild(style);
     }
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.style.animation = 'slideOutRight 0.3s ease';
+        setTimeout(() => notification.remove(), 300);
+    }, 3000);
 }
 
-function newDocument() {
-    currentDocumentId = null;
-    document.getElementById('documentTitle').value = 'Untitled Document';
-    document.getElementById('editor').innerHTML = '';
-    showEditor(); // S'assurer que l'éditeur est visible
-}
+// Fermer les modals
+elements.settingsModal.addEventListener('click', (e) => {
+    if (e.target === elements.settingsModal) hideSettingsModal();
+});
 
-function updateContent() {
-    // Content is updated in real-time through contenteditable
-}
-
-// Modal Functions
-function openDocumentList() {
-    if (!apiToken) {
-        alert('Veuillez vous connecter');
-        return;
-    }
-    document.getElementById('documentListModal').classList.add('active');
-}
-
-function closeDocumentList() {
-    document.getElementById('documentListModal').classList.remove('active');
-}
-
-function openImportDialog() {
-    document.getElementById('importModal').classList.add('active');
-}
-
-function closeImportDialog() {
-    document.getElementById('importModal').classList.remove('active');
-}
-
-function toggleExportMenu() {
-    const menu = document.getElementById('exportMenu');
-    menu.classList.toggle('active');
-}
-
-// Close export menu when clicking outside
-document.addEventListener('click', (e) => {
-    const exportMenu = document.querySelector('.export-menu');
-    if (exportMenu && !exportMenu.contains(e.target)) {
-        document.getElementById('exportMenu').classList.remove('active');
+elements.loginModal.addEventListener('click', (e) => {
+    if (e.target === elements.loginModal && !CONFIG.apiKey) {
+        showNotification('Veuillez vous connecter pour continuer', 'error');
     }
 });
 
-// Export Functions
-async function exportDocument(format) {
-    const title = document.getElementById('documentTitle').value;
-    const content = document.getElementById('editor').innerHTML;
-    
-    if (format === 'pdf') {
-        exportToPDF(content, title);
-    } else if (format === 'docx') {
-        exportToDOCX(content, title);
-    }
-    
-    document.getElementById('exportMenu').classList.remove('active');
-}
-
-function exportToPDF(content, title) {
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF();
-    
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = content;
-    const text = tempDiv.textContent || tempDiv.innerText || '';
-    
-    const lines = pdf.splitTextToSize(text, 180);
-    let y = 20;
-    
-    lines.forEach(line => {
-        if (y > 280) {
-            pdf.addPage();
-            y = 20;
-        }
-        pdf.text(line, 15, y);
-        y += 7;
-    });
-    
-    pdf.save(`${title}.pdf`);
-}
-
-async function exportToDOCX(content, title) {
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = content;
-    const text = tempDiv.textContent || tempDiv.innerText || '';
-    
-    const paragraphs = text.split('\n').map(line =>
-        new docx.Paragraph({
-            children: [new docx.TextRun(line)]
-        })
-    );
-    
-    const doc = new docx.Document({
-        sections: [{
-            properties: {},
-            children: paragraphs
-        }]
-    });
-    
-    const blob = await docx.Packer.toBlob(doc);
-    saveAs(blob, `${title}.docx`);
-}
-
-// Import Functions
-async function handleFileImport(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-    
-    try {
-        let content = '';
-        const fileName = file.name.toLowerCase();
-        
-        if (fileName.endsWith('.txt')) {
-            content = await importTextFile(file);
-            document.getElementById('editor').innerHTML = content;
-            document.getElementById('documentTitle').value = file.name.replace(/\.[^/.]+$/, '');
-            showEditor();
-            closeImportDialog();
-        } else if (fileName.endsWith('.docx')) {
-            content = await importDocxFile(file);
-            document.getElementById('editor').innerHTML = content;
-            document.getElementById('documentTitle').value = file.name.replace(/\.[^/.]+$/, '');
-            showEditor();
-            closeImportDialog();
-        } else if (fileName.endsWith('.pdf')) {
-            // Pour les PDF, on les upload directement comme fichier
-            await uploadPDFFile(file);
-            closeImportDialog();
-        } else {
-            alert('Format de fichier non supporté');
-            return;
-        }
-    } catch (error) {
-        alert('Erreur lors de l\'importation du fichier');
-        console.error(error);
-    }
-    
-    // Reset input
-    event.target.value = '';
-}
-
-async function uploadPDFFile(file) {
-    try {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('group_id', 'editor-docs');
-        formData.append('password', '');
-
-        const response = await fetch(`${API_URL}?action=upload`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${apiToken}`
-            },
-            body: formData
-        });
-
-        const data = await response.json();
-        
-        if (data.success) {
-            alert('PDF importé avec succès !');
-            loadDocuments();
-        } else {
-            alert(data.error || 'Erreur lors de l\'importation');
-        }
-    } catch (error) {
-        alert('Erreur lors de l\'importation du PDF');
-        console.error(error);
-    }
-}
-
-function importTextFile(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const text = e.target.result;
-            resolve(text.replace(/\n/g, '<br>'));
-        };
-        reader.onerror = reject;
-        reader.readAsText(file);
-    });
-}
-
-async function importDocxFile(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            try {
-                const arrayBuffer = e.target.result;
-                const result = await mammoth.convertToHtml({ arrayBuffer });
-                resolve(result.value);
-            } catch (error) {
-                reject(error);
-            }
-        };
-        reader.onerror = reject;
-        reader.readAsArrayBuffer(file);
-    });
-}
+elements.confirmModal.addEventListener('click', (e) => {
+    if (e.target === elements.confirmModal) hideConfirmModal();
+});
